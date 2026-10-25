@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Climate Lifehacks Zurich</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        zurich: {
+                            blue: '#00529B',
+                            lightBlue: '#E6F0FA',
+                            accent: '#2563EB',
+                            darkBg: '#0F172A',
+                            darkCard: '#1E293B'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .weather-gradient-summer { background: linear-gradient(135deg, #FF7E5F 0%, #FEB47B 100%); }
+        .weather-gradient-winter { background: linear-gradient(135deg, #2C3E50 0%, #000000 100%); }
+        .weather-gradient-rain { background: linear-gradient(135deg, #3a7bd5 0%, #3a6073 100%); }
+        .weather-gradient-default { background: linear-gradient(135deg, #00529B 0%, #1E40AF 100%); }
+    </style>
+</head>
+<body class="h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 transition-colors duration-200 flex flex-col">
+
+    <!-- Header / Navbar -->
+    <header class="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3">
+        <div class="max-w-3xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+                <div class="p-2 bg-blue-600 text-white rounded-xl shadow-md">
+                    <i data-lucide="leaf" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-base md:text-lg leading-tight text-slate-900 dark:text-white">Climate Lifehacks</h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Zurich Student Edition 🇨🇭</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <!-- Theme Toggle Button -->
+                <button id="themeToggle" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition">
+                    <i data-lucide="moon" id="themeIcon" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-3xl w-full mx-auto px-4 py-6 space-y-6">
+
+        <!-- Extreme Weather Alert Banner (Dynamically Inserted) -->
+        <div id="alertBannerContainer"></div>
+
+        <!-- Weather Display Card -->
+        <div id="weatherCard" class="weather-gradient-default rounded-3xl p-6 text-white shadow-xl relative overflow-hidden transition-all duration-500">
+            <!-- Background Decorative Element -->
+            <div class="absolute -right-10 -bottom-10 opacity-15 pointer-events-none">
+                <i data-lucide="sun-cloud" class="w-64 h-64"></i>
+            </div>
+
+            <div class="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/20 backdrop-blur-sm text-white">
+                            <i data-lucide="map-pin" class="w-3 h-3 mr-1"></i> Zurich, UZH / ETH
+                        </span>
+                        <span id="seasonBadge" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/20 backdrop-blur-sm text-white">
+                            -- Season
+                        </span>
+                    </div>
+                    <div class="flex items-baseline mt-2 space-x-2">
+                        <h2 id="tempDisplay" class="text-5xl font-extrabold tracking-tight">--°C</h2>
+                        <span id="conditionDisplay" class="text-lg font-medium text-blue-100">Loading Weather...</span>
+                    </div>
+                    <p id="highLowDisplay" class="text-xs text-blue-100 mt-1">High: --°C | Low: --°C</p>
+                </div>
+
+                <div class="flex items-center space-x-6 bg-white/10 backdrop-blur-md px-4 py-3 rounded-2xl border border-white/20 w-full md:w-auto justify-around">
+                    <div class="text-center">
+                        <div class="flex items-center justify-center text-blue-100 mb-1">
+                            <i data-lucide="wind" class="w-4 h-4"></i>
+                        </div>
+                        <span id="windDisplay" class="text-sm font-semibold block">-- km/h</span>
+                        <span class="text-[10px] text-blue-200 uppercase tracking-wider">Wind</span>
+                    </div>
+                    <div class="h-8 w-px bg-white/20"></div>
+                    <div class="text-center">
+                        <div class="flex items-center justify-center text-blue-100 mb-1">
+                            <i data-lucide="cloud-rain" class="w-4 h-4"></i>
+                        </div>
+                        <span id="precipDisplay" class="text-sm font-semibold block">-- mm</span>
+                        <span class="text-[10px] text-blue-200 uppercase tracking-wider">Precip</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Refresh Button -->
+            <button id="refreshWeatherBtn" class="mt-4 text-xs bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-3 py-1.5 flex items-center space-x-1 transition">
+                <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                <span>Refresh Weather</span>
+            </button>
+        </div>
+
+        <!-- Mode Toggle & Controls -->
+        <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
+            <!-- Source Selector: Predefined vs Gemini AI -->
+            <div class="flex items-center justify-between md:justify-start space-x-3 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                <button id="modeStaticBtn" class="flex-1 md:flex-initial px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 shadow-sm">
+                    <i data-lucide="database" class="w-3.5 h-3.5 inline mr-1"></i> Standard Database
+                </button>
+                <button id="modeAiBtn" class="flex-1 md:flex-initial px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition">
+                    <i data-lucide="sparkles" class="w-3.5 h-3.5 inline mr-1 text-purple-500"></i> AI Generated (Gemini)
+                </button>
+            </div>
+
+            <!-- Filters -->
+            <div class="flex items-center space-x-2">
+                <select id="seasonFilter" class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs rounded-xl p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                    <option value="auto">Auto-detect Season</option>
+                    <option value="Summer">Summer</option>
+                    <option value="Winter">Winter</option>
+                    <option value="Spring">Spring</option>
+                    <option value="Autumn">Autumn</option>
+                </select>
+
+                <select id="conditionFilter" class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs rounded-xl p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                    <option value="all">All Conditions</option>
+                    <option value="Heat">Heat / Hot</option>
+                    <option value="Cold">Cold / Freezing</option>
+                    <option value="Rain">Rain / Snow</option>
+                    <option value="General">General Adaptation</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Tips Section Header -->
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Today's Zurich Student Lifehacks</span>
+                    <span id="tipCountBadge" class="bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-xs px-2 py-0.5 rounded-full">0 tips</span>
+                </h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Tailored practical advice for campus life & climate adaptation</p>
+            </div>
+            <button id="generateAiTipsBtn" class="hidden text-xs bg-purple-600 hover:bg-purple-700 text-white font-medium px-3 py-2 rounded-xl flex items-center space-x-1 shadow-sm transition">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                <span>Re-generate AI Tips</span>
+            </button>
+        </div>
+
+        <!-- Tips List Container -->
+        <div id="tipsContainer" class="space-y-3">
+            <!-- Loading skeleton or tips inserted here -->
+        </div>
+
+    </main>
+
+    <!-- Simple Footer -->
+    <footer class="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 py-4 px-4 text-center text-xs text-slate-500 dark:text-slate-400 mt-auto">
+        <p>Climate Lifehacks Zurich • Student Prototype • Live data from Open-Meteo & Gemini AI API</p>
+    </footer>
+
+    <!-- Application Script -->
+    <script>
+        // --- PREDEFINED TIP DATABASE (Fallback / D3 Requirements) ---
+        const TIP_DATABASE = [
+            // EXTREME HEAT
+            { id: 1, text: "Refill your water bottle at Zurich's 1,200+ drinking fountains (Brunnen) scattered across campus and the city.", category: "Heat", season: "Summer", extreme: true, icon: "droplet" },
+            { id: 2, text: "Study in cooler UZH / ETH basement libraries (e.g., ETH HG H-floor or UZH Law Library lower levels).", category: "Heat", season: "Summer", extreme: true, icon: "book-open" },
+            { id: 3, text: "Take a quick cooling splash at Limmat or Lake Zurich during lunch breaks at Utoquai or Frauenbadi.", category: "Heat", season: "Summer", extreme: false, icon: "waves" },
+            { id: 4, text: "Avoid the hottest sun between 11:00 and 15:00. Use shaded paths along Polyterrasse or Irchel Park.", category: "Heat", season: "Summer", extreme: true, icon: "sun" },
+            { id: 5, text: "Keep room shutters (Laden) closed during daytime in your student WGs to block solar heat.", category: "Heat", season: "Summer", extreme: false, icon: "home" },
+
+            // EXTREME COLD / ICE
+            { id: 6, text: "Extreme Ice Alert! Watch for slippery icy stairs up to Polyterrasse or UZH Zentrum hill.", category: "Cold", season: "Winter", extreme: true, icon: "snowflake" },
+            { id: 7, text: "Grab cheap warm tea or coffee with your student ASVZ thermal flask to stay warm between lectures.", category: "Cold", season: "Winter", extreme: false, icon: "coffee" },
+            { id: 8, text: "Layer up with thermal innerwear for long tram waiting times at Polybahn or Hauptbahnhof.", category: "Cold", season: "Winter", extreme: false, icon: "shield" },
+            { id: 9, text: "Study in warm greenhouse or indoor spaces like the Botanical Garden glasshouses at Zollikerstrasse.", category: "Cold", season: "Winter", extreme: false, icon: "flower-2" },
+
+            // RAIN / SNOW
+            { id: 10, text: "Heavy rain forecasted! Use the underground passages between ETH Main Building and CLA building.", category: "Rain", season: "Autumn", extreme: true, icon: "cloud-rain" },
+            { id: 11, text: "Check VBZ app for tram delays during heavy snowfall or severe rainstorms in the city center.", category: "Rain", season: "Winter", extreme: false, icon: "bus" },
+            { id: 12, text: "Keep an extra pair of socks in your backpack when commuting on wet Zurich rainy days.", category: "Rain", season: "Autumn", extreme: false, icon: "umbrella" },
+
+            // GENERAL / SEASONAL
+            { id: 13, text: "Eat seasonal local Swiss produce (apples, squash) at Mensa to lower your food carbon footprint.", category: "General", season: "Autumn", extreme: false, icon: "utensils" },
+            { id: 14, text: "Use your ZVV student pass to take eco-friendly public transit instead of rideshare services.", category: "General", season: "Spring", extreme: false, icon: "train" },
+            { id: 15, text: "Join ASVZ sports classes indoors or outdoors depending on the weather index.", category: "General", season: "Spring", extreme: false, icon: "activity" }
+        ];
+
+        // --- APP STATE ---
+        const state = {
+            weather: null,
+            isAiMode: false,
+            season: "Summer",
+            isExtreme: false,
+            extremeType: null, // "HEAT", "ICE", "HEAVY_RAIN", "SNOW"
+            bookmarks: JSON.parse(localStorage.getItem('zh_climate_bookmarks') || '[]'),
+            doneTips: JSON.parse(localStorage.getItem('zh_climate_dones') || '[]'),
+            aiTipsCache: null
+        };
+
+        // --- DOM ELEMENTS ---
+        const weatherCard = document.getElementById('weatherCard');
+        const alertBannerContainer = document.getElementById('alertBannerContainer');
+        const tempDisplay = document.getElementById('tempDisplay');
+        const conditionDisplay = document.getElementById('conditionDisplay');
+        const highLowDisplay = document.getElementById('highLowDisplay');
+        const windDisplay = document.getElementById('windDisplay');
+        const precipDisplay = document.getElementById('precipDisplay');
+        const seasonBadge = document.getElementById('seasonBadge');
+        const tipsContainer = document.getElementById('tipsContainer');
+        const tipCountBadge = document.getElementById('tipCountBadge');
+        
+        const modeStaticBtn = document.getElementById('modeStaticBtn');
+        const modeAiBtn = document.getElementById('modeAiBtn');
+        const generateAiTipsBtn = document.getElementById('generateAiTipsBtn');
+        const seasonFilter = document.getElementById('seasonFilter');
+        const conditionFilter = document.getElementById('conditionFilter');
+        const themeToggle = document.getElementById('themeToggle');
+        const themeIcon = document.getElementById('themeIcon');
+
+        // --- WEATHER API FETCHING (Open-Meteo for Zurich) ---
+        async function fetchZurichWeather() {
+            const latitude = 47.3769;
+            const longitude = 8.5417;
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=Europe%2FBerlin`;
+
+            try {
+                const res = await fetch(url);
+                if (!res.ok) throw new Error("Weather fetch failed");
+                const data = await res.json();
+                
+                const current = data.current_weather;
+                const daily = data.daily;
+
+                state.weather = {
+                    temp: Math.round(current.temperature),
+                    code: current.weathercode,
+                    wind: Math.round(current.windspeed),
+                    maxTemp: Math.round(daily.temperature_2m_max[0]),
+                    minTemp: Math.round(daily.temperature_2m_min[0]),
+                    precip: daily.precipitation_sum[0] || 0
+                };
+            } catch (err) {
+                console.warn("Using fallback weather data due to error:", err);
+                // Fallback Mock Data
+                state.weather = {
+                    temp: 31,
+                    code: 0,
+                    wind: 12,
+                    maxTemp: 32,
+                    minTemp: 21,
+                    precip: 0.0
+                };
+            }
+
+            processWeatherData();
+            updateWeatherUI();
+            renderTips();
+        }
+
+        // Interpret Weather Codes and Season
+        function processWeatherData() {
+            const date = new Date();
+            const month = date.getMonth() + 1;
+
+            // Season determination
+            if (month >= 3 && month <= 5) state.season = "Spring";
+            else if (month >= 6 && month <= 8) state.season = "Summer";
+            else if (month >= 9 && month <= 11) state.season = "Autumn";
+            else state.season = "Winter";
+
+            // Extreme weather detection
+            state.isExtreme = false;
+            state.extremeType = null;
+
+            const temp = state.weather.temp;
+            const code = state.weather.code;
+
+            if (temp >= 30) {
+                state.isExtreme = true;
+                state.extremeType = "HEAT";
+            } else if (temp < 0) {
+                state.isExtreme = true;
+                state.extremeType = "ICE";
+            } else if ([63, 65, 81, 82].includes(code)) {
+                state.isExtreme = true;
+                state.extremeType = "HEAVY_RAIN";
+            } else if ([71, 73, 75, 77, 85, 86].includes(code)) {
+                state.isExtreme = true;
+                state.extremeType = "SNOW";
+            }
+        }
+
+        // Translate WMO Weather Code to Description
+        function getWeatherDescription(code) {
+            const codes = {
+                0: "Clear Sky", 1: "Mainly Clear", 2: "Partly Cloudy", 3: "Overcast",
+                45: "Foggy", 48: "Depositing Rime Fog", 51: "Light Drizzle", 53: "Moderate Drizzle",
+                61: "Slight Rain", 63: "Moderate Rain", 65: "Heavy Rain", 71: "Slight Snow",
+                73: "Moderate Snow", 75: "Heavy Snow", 80: "Slight Rain Showers", 95: "Thunderstorm"
+            };
+            return codes[code] || "Variable Weather";
+        }
+
+        // --- UPDATE WEATHER UI ---
+        function updateWeatherUI() {
+            if (!state.weather) return;
+
+            tempDisplay.textContent = `${state.weather.temp}°C`;
+            conditionDisplay.textContent = getWeatherDescription(state.weather.code);
+            highLowDisplay.textContent = `High: ${state.weather.maxTemp}°C | Low: ${state.weather.minTemp}°C`;
+            windDisplay.textContent = `${state.weather.wind} km/h`;
+            precipDisplay.textContent = `${state.weather.precip} mm`;
+            seasonBadge.textContent = state.season;
+
+            // Gradient Styling based on temperature / weather
+            weatherCard.className = "rounded-3xl p-6 text-white shadow-xl relative overflow-hidden transition-all duration-500 ";
+            if (state.weather.temp >= 28) {
+                weatherCard.classList.add("weather-gradient-summer");
+            } else if (state.weather.temp <= 5) {
+                weatherCard.classList.add("weather-gradient-winter");
+            } else if (state.weather.precip > 2) {
+                weatherCard.classList.add("weather-gradient-rain");
+            } else {
+                weatherCard.classList.add("weather-gradient-default");
+            }
+
+            // Render Alert Banner if extreme
+            alertBannerContainer.innerHTML = '';
+            if (state.isExtreme) {
+                let alertTitle = "Extreme Weather Warning";
+                let alertMsg = "";
+                let iconName = "alert-triangle";
+
+                switch(state.extremeType) {
+                    case "HEAT":
+                        alertTitle = "🔥 Extreme Heat Day (≥30°C)";
+                        alertMsg = "High heat index in Zurich. Prioritize shade, hydration, and cool study spaces!";
+                        break;
+                    case "ICE":
+                        alertTitle = "❄️ Freezing Ice Day (<0°C)";
+                        alertMsg = "Sub-zero conditions in Zurich. Slippery pathways around Polyterrasse!";
+                        break;
+                    case "HEAVY_RAIN":
+                        alertTitle = "🌧️ Heavy Downpour Alert";
+                        alertMsg = "Significant rainfall in Zurich. Use covered campus passageways.";
+                        break;
+                    case "SNOW":
+                        alertTitle = "☃️ Snowfall Alert";
+                        alertMsg = "Snow conditions active. Check ZVV tram timings for potential delays.";
+                        break;
+                }
+
+                alertBannerContainer.innerHTML = `
+                    <div class="bg-amber-500/10 dark:bg-amber-500/20 border-l-4 border-amber-500 p-4 rounded-2xl flex items-start space-x-3 text-amber-900 dark:text-amber-200">
+                        <i data-lucide="${iconName}" class="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5"></i>
+                        <div>
+                            <h4 class="font-bold text-sm">${alertTitle}</h4>
+                            <p class="text-xs text-amber-800 dark:text-amber-300 mt-0.5">${alertMsg}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            lucide.createIcons();
+        }
+
+        // --- GEMINI AI INTEGRATION ---
+        async function fetchGeminiTips() {
+            tipsContainer.innerHTML = `
+                <div class="p-8 text-center bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
+                    <div class="inline-block animate-spin text-purple-600 mb-2">
+                        <i data-lucide="loader" class="w-8 h-8"></i>
+                    </div>
+                    <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Generating AI Lifehacks via Gemini...</p>
+                    <p class="text-xs text-slate-400 mt-1">Analyzing Zurich weather: ${state.weather.temp}°C, ${getWeatherDescription(state.weather.code)}</p>
+                </div>
+            `;
+            lucide.createIcons();
+
+            const prompt = `Act as an expert Zurich student climate adaptation guide.
+Given current weather in Zurich: Temp ${state.weather.temp}°C, Condition: ${getWeatherDescription(state.weather.code)}, Season: ${state.season}.
+Generate exactly 6 concise, highly practical, student-friendly lifehacks/tips for students at UZH and ETH Zurich to adapt today.
+Return a valid JSON array of objects with keys: "text" (string), "category" ("Heat"|"Cold"|"Rain"|"General"), "extreme" (boolean). Do not include markdown code block syntax. Just pure JSON raw string.`;
+
+            const apiKey = ""; // Canvas runtime automatically supplies API key when blank
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }]
+                    })
+                });
+
+                const data = await response.json();
+                const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                
+                if (rawText) {
+                    // Clean possible markdown backticks
+                    const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+                    const parsed = JSON.parse(cleanJson);
+                    
+                    state.aiTipsCache = parsed.map((item, index) => ({
+                        id: 'ai_' + index,
+                        text: item.text,
+                        category: item.category || "General",
+                        season: state.season,
+                        extreme: !!item.extreme,
+                        icon: item.category === 'Heat' ? 'sun' : item.category === 'Cold' ? 'snowflake' : item.category === 'Rain' ? 'cloud-rain' : 'compass'
+                    }));
+                }
+            } catch (e) {
+                console.error("Gemini API Error, falling back to static database", e);
+            }
+
+            renderTips();
+        }
+
+        // --- RENDER TIPS ---
+        function renderTips() {
+            let activeList = [];
+
+            if (state.isAiMode) {
+                if (!state.aiTipsCache) {
+                    fetchGeminiTips();
+                    return;
+                }
+                activeList = [...state.aiTipsCache];
+            } else {
+                activeList = [...TIP_DATABASE];
+            }
+
+            // Apply Filters
+            const selectedSeason = seasonFilter.value === 'auto' ? state.season : seasonFilter.value;
+            const selectedCondition = conditionFilter.value;
+
+            let filtered = activeList.filter(tip => {
+                const matchSeason = (seasonFilter.value === 'auto') ? true : tip.season === selectedSeason;
+                const matchCondition = (selectedCondition === 'all') ? true : tip.category === selectedCondition;
+                return matchSeason && matchCondition;
+            });
+
+            // Sort: Extreme tips always placed at top (Requirement D4)
+            filtered.sort((a, b) => (b.extreme === true ? 1 : 0) - (a.extreme === true ? 1 : 0));
+
+            // Cap at up to 10 tips per day (Requirement D3)
+            filtered = filtered.slice(0, 10);
+
+            tipCountBadge.textContent = `${filtered.length} tips`;
+
+            if (filtered.length === 0) {
+                tipsContainer.innerHTML = `
+                    <div class="p-8 text-center text-slate-500 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
+                        <i data-lucide="info" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
+                        <p class="text-sm">No tips match your filter criteria.</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            tipsContainer.innerHTML = filtered.map(tip => {
+                const isBookmarked = state.bookmarks.includes(tip.id);
+                const isDone = state.doneTips.includes(tip.id);
+
+                return `
+                    <div class="p-4 rounded-2xl bg-white dark:bg-slate-800 border ${tip.extreme ? 'border-amber-400 dark:border-amber-500/50 bg-amber-50/30 dark:bg-amber-950/10' : 'border-slate-200 dark:border-slate-700'} shadow-sm transition hover:shadow-md flex items-start space-x-3 group">
+                        
+                        <!-- Checkbox / Done -->
+                        <button onclick="toggleDone('${tip.id}')" class="mt-0.5 p-1 rounded-lg text-slate-400 hover:text-green-500 transition">
+                            <i data-lucide="${isDone ? 'check-circle-2' : 'circle'}" class="w-5 h-5 ${isDone ? 'text-green-500 fill-green-500/20' : ''}"></i>
+                        </button>
+
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2 mb-1">
+                                ${tip.extreme ? '<span class="px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase bg-amber-500 text-white rounded-md">Priority</span>' : ''}
+                                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">${tip.category}</span>
+                            </div>
+                            <p class="text-sm text-slate-800 dark:text-slate-200 ${isDone ? 'line-through text-slate-400 dark:text-slate-500' : ''}">
+                                ${tip.text}
+                            </p>
+                        </div>
+
+                        <!-- Bookmark Action -->
+                        <button onclick="toggleBookmark('${tip.id}')" class="p-1 rounded-lg text-slate-400 hover:text-amber-500 transition">
+                            <i data-lucide="bookmark" class="w-4 h-4 ${isBookmarked ? 'text-amber-500 fill-amber-500' : ''}"></i>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+
+            lucide.createIcons();
+        }
+
+        // --- USER INTERACTIONS ---
+        window.toggleBookmark = function(id) {
+            if (state.bookmarks.includes(id)) {
+                state.bookmarks = state.bookmarks.filter(item => item !== id);
+            } else {
+                state.bookmarks.push(id);
+            }
+            localStorage.setItem('zh_climate_bookmarks', JSON.stringify(state.bookmarks));
+            renderTips();
+        };
+
+        window.toggleDone = function(id) {
+            if (state.doneTips.includes(id)) {
+                state.doneTips = state.doneTips.filter(item => item !== id);
+            } else {
+                state.doneTips.push(id);
+            }
+            localStorage.setItem('zh_climate_dones', JSON.stringify(state.doneTips));
+            renderTips();
+        };
+
+        // Mode Switching
+        modeStaticBtn.addEventListener('click', () => {
+            state.isAiMode = false;
+            modeStaticBtn.className = "flex-1 md:flex-initial px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 shadow-sm";
+            modeAiBtn.className = "flex-1 md:flex-initial px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition";
+            generateAiTipsBtn.classList.add('hidden');
+            renderTips();
+        });
+
+        modeAiBtn.addEventListener('click', () => {
+            state.isAiMode = true;
+            modeAiBtn.className = "flex-1 md:flex-initial px-3 py-1.5 rounded-lg text-xs font-medium transition bg-purple-600 text-white shadow-sm";
+            modeStaticBtn.className = "flex-1 md:flex-initial px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition";
+            generateAiTipsBtn.classList.remove('hidden');
+            renderTips();
+        });
+
+        generateAiTipsBtn.addEventListener('click', () => {
+            state.aiTipsCache = null;
+            fetchGeminiTips();
+        });
+
+        seasonFilter.addEventListener('change', renderTips);
+        conditionFilter.addEventListener('change', renderTips);
+
+        document.getElementById('refreshWeatherBtn').addEventListener('click', () => {
+            fetchZurichWeather();
+        });
+
+        // Dark/Light Theme Switch
+        themeToggle.addEventListener('click', () => {
+            document.documentElement.classList.toggle('dark');
+            const isDark = document.documentElement.classList.contains('dark');
+            themeIcon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
+            lucide.createIcons();
+        });
+
+        // Initialize on load
+        window.onload = function() {
+            lucide.createIcons();
+            fetchZurichWeather();
+        };
+    </script>
+</body>
+</html>
