@@ -173,48 +173,31 @@
 
     <!-- Simple Footer -->
     <footer class="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 py-4 px-4 text-center text-xs text-slate-500 dark:text-slate-400 mt-auto">
-        <p>Climate Lifehacks Zurich • Student Prototype • Live data from Open-Meteo & Gemini AI API</p>
+        <p>Climate Lifehacks Zurich • Live data from Open-Meteo • Optional server-side AI tips</p>
     </footer>
 
     <!-- Application Script -->
     <script>
-        // --- PREDEFINED TIP DATABASE (Fallback / D3 Requirements) ---
-        const TIP_DATABASE = [
-            // EXTREME HEAT
-            { id: 1, text: "Refill your water bottle at Zurich's 1,200+ drinking fountains (Brunnen) scattered across campus and the city.", category: "Heat", season: "Summer", extreme: true, icon: "droplet" },
-            { id: 2, text: "Study in cooler UZH / ETH basement libraries (e.g., ETH HG H-floor or UZH Law Library lower levels).", category: "Heat", season: "Summer", extreme: true, icon: "book-open" },
-            { id: 3, text: "Take a quick cooling splash at Limmat or Lake Zurich during lunch breaks at Utoquai or Frauenbadi.", category: "Heat", season: "Summer", extreme: false, icon: "waves" },
-            { id: 4, text: "Avoid the hottest sun between 11:00 and 15:00. Use shaded paths along Polyterrasse or Irchel Park.", category: "Heat", season: "Summer", extreme: true, icon: "sun" },
-            { id: 5, text: "Keep room shutters (Laden) closed during daytime in your student WGs to block solar heat.", category: "Heat", season: "Summer", extreme: false, icon: "home" },
-
-            // EXTREME COLD / ICE
-            { id: 6, text: "Extreme Ice Alert! Watch for slippery icy stairs up to Polyterrasse or UZH Zentrum hill.", category: "Cold", season: "Winter", extreme: true, icon: "snowflake" },
-            { id: 7, text: "Grab cheap warm tea or coffee with your student ASVZ thermal flask to stay warm between lectures.", category: "Cold", season: "Winter", extreme: false, icon: "coffee" },
-            { id: 8, text: "Layer up with thermal innerwear for long tram waiting times at Polybahn or Hauptbahnhof.", category: "Cold", season: "Winter", extreme: false, icon: "shield" },
-            { id: 9, text: "Study in warm greenhouse or indoor spaces like the Botanical Garden glasshouses at Zollikerstrasse.", category: "Cold", season: "Winter", extreme: false, icon: "flower-2" },
-
-            // RAIN / SNOW
-            { id: 10, text: "Heavy rain forecasted! Use the underground passages between ETH Main Building and CLA building.", category: "Rain", season: "Autumn", extreme: true, icon: "cloud-rain" },
-            { id: 11, text: "Check VBZ app for tram delays during heavy snowfall or severe rainstorms in the city center.", category: "Rain", season: "Winter", extreme: false, icon: "bus" },
-            { id: 12, text: "Keep an extra pair of socks in your backpack when commuting on wet Zurich rainy days.", category: "Rain", season: "Autumn", extreme: false, icon: "umbrella" },
-
-            // GENERAL / SEASONAL
-            { id: 13, text: "Eat seasonal local Swiss produce (apples, squash) at Mensa to lower your food carbon footprint.", category: "General", season: "Autumn", extreme: false, icon: "utensils" },
-            { id: 14, text: "Use your ZVV student pass to take eco-friendly public transit instead of rideshare services.", category: "General", season: "Spring", extreme: false, icon: "train" },
-            { id: 15, text: "Join ASVZ sports classes indoors or outdoors depending on the weather index.", category: "General", season: "Spring", extreme: false, icon: "activity" }
-        ];
-
         // --- APP STATE ---
         const state = {
             weather: null,
+            weatherError: null,
+            tips: [],
+            tipsError: null,
             isAiMode: false,
-            season: "Summer",
+            season: "Winter",
             isExtreme: false,
             extremeType: null, // "HEAT", "ICE", "HEAVY_RAIN", "SNOW"
-            bookmarks: JSON.parse(localStorage.getItem('zh_climate_bookmarks') || '[]'),
-            doneTips: JSON.parse(localStorage.getItem('zh_climate_dones') || '[]'),
-            aiTipsCache: null
+            bookmarks: JSON.parse(localStorage.getItem('zh_climate_bookmarks') || '[]').map(String),
+            doneTips: JSON.parse(localStorage.getItem('zh_climate_dones') || '[]').map(String),
+            aiTipsCache: null,
+            aiError: null,
+            aiRequestInProgress: false
         };
+
+        const AI_TIPS_ENDPOINT = '/api/tips';
+        const SNOW_CODES = [71, 73, 75, 77, 85, 86];
+        const RAIN_CODES = [51, 53, 55, 61, 63, 65, 80, 81, 82];
 
         // --- DOM ELEMENTS ---
         const weatherCard = document.getElementById('weatherCard');
@@ -236,6 +219,141 @@
         const themeToggle = document.getElementById('themeToggle');
         const themeIcon = document.getElementById('themeIcon');
 
+        function parseCsv(text) {
+            const firstLine = text.split(/\r?\n/, 1)[0];
+            const delimiter = firstLine.includes('\t') ? '\t' : ',';
+            const rows = [];
+            let row = [];
+            let field = '';
+            let quoted = false;
+
+            for (let index = 0; index < text.length; index += 1) {
+                const character = text[index];
+                if (quoted) {
+                    if (character === '"' && text[index + 1] === '"') {
+                        field += '"';
+                        index += 1;
+                    } else if (character === '"') {
+                        quoted = false;
+                    } else {
+                        field += character;
+                    }
+                } else if (character === '"' && field.length === 0) {
+                    quoted = true;
+                } else if (character === delimiter) {
+                    row.push(field);
+                    field = '';
+                } else if (character === '\n' || character === '\r') {
+                    if (character === '\r' && text[index + 1] === '\n') index += 1;
+                    row.push(field);
+                    if (row.some(value => value.trim() !== '')) rows.push(row);
+                    row = [];
+                    field = '';
+                } else {
+                    field += character;
+                }
+            }
+
+            if (quoted) throw new Error('The tips CSV contains an unterminated quoted field.');
+            row.push(field);
+            if (row.some(value => value.trim() !== '')) rows.push(row);
+            if (rows.length < 2) throw new Error('The tips CSV has no tip rows.');
+
+            const headers = rows[0].map(header => header.trim().toLowerCase());
+            const requiredHeaders = ['id', 'season', 'condition', 'extreme', 'tip'];
+            if (requiredHeaders.some(header => !headers.includes(header))) {
+                throw new Error('The tips CSV must have id, season, condition, extreme, and tip columns.');
+            }
+
+            return rows.slice(1).map((values, rowIndex) => {
+                const record = Object.fromEntries(headers.map((header, index) => [header, values[index] || '']));
+                const id = record.id.trim();
+                const season = record.season.trim();
+                const condition = record.condition.trim();
+                const tip = record.tip.trim();
+                if (!id || !season || !condition || !tip) {
+                    throw new Error(`The tips CSV has a missing required value on row ${rowIndex + 2}.`);
+                }
+                return {
+                    id,
+                    season,
+                    condition,
+                    category: getConditionCategory(condition),
+                    extreme: ['true', '1', 'yes'].includes(record.extreme.trim().toLowerCase()),
+                    text: tip
+                };
+            });
+        }
+
+        async function loadTips() {
+            try {
+                const response = await fetch('./tips.csv');
+                if (!response.ok) throw new Error(`Could not load tips.csv (HTTP ${response.status}).`);
+                state.tips = parseCsv(await response.text());
+                state.tipsError = null;
+            } catch (error) {
+                console.error('Tip list loading failed:', error);
+                state.tips = [];
+                state.tipsError = 'The tip list could not be loaded. Check that tips.csv is present and valid.';
+            }
+        }
+
+        function normalizeCondition(condition) {
+            return condition.toLowerCase().replace(/[^a-z]/g, '');
+        }
+
+        function getConditionCategory(condition) {
+            const value = normalizeCondition(condition);
+            if (['heat', 'hot', 'sun', 'sunny', 'warm'].some(term => value.includes(term))) return 'Heat';
+            if (value.includes('snow')) return 'Rain';
+            if (['cold', 'ice', 'freez', 'frost'].some(term => value.includes(term))) return 'Cold';
+            if (['rain', 'wet', 'drizzle', 'storm', 'cloud'].some(term => value.includes(term))) return 'Rain';
+            return 'General';
+        }
+
+        function matchesWeatherCondition(condition, weather) {
+            const value = normalizeCondition(condition);
+            const rain = RAIN_CODES.includes(weather.code) || weather.precip > 0;
+            const snow = SNOW_CODES.includes(weather.code);
+
+            if (['general', 'all', 'any', 'allweather'].includes(value)) return true;
+            if (['heat', 'hot', 'warm'].includes(value)) return weather.maxTemp >= 30;
+            if (['ice', 'icy', 'freezing', 'frost', 'frosty'].includes(value)) return weather.maxTemp < 0;
+            if (value.includes('snow')) return snow;
+            if (['rain', 'rainy', 'wet', 'drizzle', 'storm', 'heavy-rain'].some(term => value.includes(term))) return rain;
+            if (['cold', 'cool'].includes(value)) return weather.temp <= 10;
+            if (['sun', 'sunny', 'clear'].some(term => value.includes(term))) return weather.code <= 2;
+            if (['cloud', 'cloudy', 'overcast'].some(term => value.includes(term))) return [2, 3, 45, 48].includes(weather.code);
+            if (['wind', 'windy'].some(term => value.includes(term))) return weather.wind >= 30;
+            if (['dry'].some(term => value.includes(term))) return !rain && !snow;
+            return false;
+        }
+
+        function getExtremeType(condition) {
+            const value = normalizeCondition(condition);
+            if (value.includes('heat') || value.includes('hot')) return 'HEAT';
+            if (value.includes('ice') || value.includes('cold') || value.includes('freez') || value.includes('frost')) return 'ICE';
+            if (value.includes('snow')) return 'SNOW';
+            if (value.includes('rain') || value.includes('storm')) return 'HEAVY_RAIN';
+            return null;
+        }
+
+        function isExtremeConditionActive(condition, weather) {
+            switch (getExtremeType(condition)) {
+                case 'HEAT': return weather.maxTemp >= 30;
+                case 'ICE': return weather.maxTemp < 0;
+                case 'SNOW': return SNOW_CODES.includes(weather.code);
+                case 'HEAVY_RAIN': return [65, 82].includes(weather.code);
+                default: return false;
+            }
+        }
+
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, character => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[character]);
+        }
+
         // --- WEATHER API FETCHING (Open-Meteo for Zurich) ---
         async function fetchZurichWeather() {
             const latitude = 47.3769;
@@ -244,31 +362,30 @@
 
             try {
                 const res = await fetch(url);
-                if (!res.ok) throw new Error("Weather fetch failed");
+                if (!res.ok) throw new Error(`Weather service returned HTTP ${res.status}.`);
                 const data = await res.json();
-                
                 const current = data.current_weather;
                 const daily = data.daily;
+                if (!current || !Number.isFinite(current.temperature) ||
+                    !Number.isFinite(current.weathercode) || !Number.isFinite(current.windspeed) ||
+                    !daily || !Number.isFinite(daily.temperature_2m_max?.[0]) ||
+                    !Number.isFinite(daily.temperature_2m_min?.[0])) {
+                    throw new Error('Weather service returned incomplete data.');
+                }
 
                 state.weather = {
                     temp: Math.round(current.temperature),
                     code: current.weathercode,
                     wind: Math.round(current.windspeed),
-                    maxTemp: Math.round(daily.temperature_2m_max[0]),
-                    minTemp: Math.round(daily.temperature_2m_min[0]),
+                    maxTemp: daily.temperature_2m_max[0],
+                    minTemp: daily.temperature_2m_min[0],
                     precip: daily.precipitation_sum[0] || 0
                 };
-            } catch (err) {
-                console.warn("Using fallback weather data due to error:", err);
-                // Fallback Mock Data
-                state.weather = {
-                    temp: 31,
-                    code: 0,
-                    wind: 12,
-                    maxTemp: 32,
-                    minTemp: 21,
-                    precip: 0.0
-                };
+                state.weatherError = null;
+            } catch (error) {
+                console.error('Weather fetch failed:', error);
+                state.weather = null;
+                state.weatherError = 'Weather data is currently unavailable. Please try refreshing.';
             }
 
             processWeatherData();
@@ -291,19 +408,21 @@
             state.isExtreme = false;
             state.extremeType = null;
 
-            const temp = state.weather.temp;
+            if (!state.weather) return;
+
+            const maxTemp = state.weather.maxTemp;
             const code = state.weather.code;
 
-            if (temp >= 30) {
+            if (maxTemp >= 30) {
                 state.isExtreme = true;
                 state.extremeType = "HEAT";
-            } else if (temp < 0) {
+            } else if (maxTemp < 0) {
                 state.isExtreme = true;
                 state.extremeType = "ICE";
-            } else if ([63, 65, 81, 82].includes(code)) {
+            } else if ([65, 82].includes(code)) {
                 state.isExtreme = true;
                 state.extremeType = "HEAVY_RAIN";
-            } else if ([71, 73, 75, 77, 85, 86].includes(code)) {
+            } else if (SNOW_CODES.includes(code)) {
                 state.isExtreme = true;
                 state.extremeType = "SNOW";
             }
@@ -322,7 +441,23 @@
 
         // --- UPDATE WEATHER UI ---
         function updateWeatherUI() {
-            if (!state.weather) return;
+            alertBannerContainer.innerHTML = '';
+            if (!state.weather) {
+                tempDisplay.textContent = '--°C';
+                conditionDisplay.textContent = 'Weather unavailable';
+                highLowDisplay.textContent = 'High: --°C | Low: --°C';
+                windDisplay.textContent = '-- km/h';
+                precipDisplay.textContent = '-- mm';
+                seasonBadge.textContent = state.season;
+                alertBannerContainer.innerHTML = `
+                    <div role="alert" class="bg-red-500/10 dark:bg-red-500/20 border-l-4 border-red-500 p-4 rounded-2xl text-red-900 dark:text-red-200">
+                        <h4 class="font-bold text-sm">Weather data unavailable</h4>
+                        <p class="text-xs mt-0.5">${escapeHtml(state.weatherError || 'Please try refreshing.')}</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
 
             tempDisplay.textContent = `${state.weather.temp}°C`;
             conditionDisplay.textContent = getWeatherDescription(state.weather.code);
@@ -344,7 +479,6 @@
             }
 
             // Render Alert Banner if extreme
-            alertBannerContainer.innerHTML = '';
             if (state.isExtreme) {
                 let alertTitle = "Extreme Weather Warning";
                 let alertMsg = "";
@@ -382,8 +516,10 @@
             lucide.createIcons();
         }
 
-        // --- GEMINI AI INTEGRATION ---
+        // --- OPTIONAL SERVER-SIDE AI INTEGRATION ---
         async function fetchGeminiTips() {
+            if (state.aiRequestInProgress) return;
+            state.aiRequestInProgress = true;
             tipsContainer.innerHTML = `
                 <div class="p-8 text-center bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
                     <div class="inline-block animate-spin text-purple-600 mb-2">
@@ -395,42 +531,40 @@
             `;
             lucide.createIcons();
 
-            const prompt = `Act as an expert Zurich student climate adaptation guide.
-Given current weather in Zurich: Temp ${state.weather.temp}°C, Condition: ${getWeatherDescription(state.weather.code)}, Season: ${state.season}.
-Generate exactly 6 concise, highly practical, student-friendly lifehacks/tips for students at UZH and ETH Zurich to adapt today.
-Return a valid JSON array of objects with keys: "text" (string), "category" ("Heat"|"Cold"|"Rain"|"General"), "extreme" (boolean). Do not include markdown code block syntax. Just pure JSON raw string.`;
-
-            const apiKey = ""; // Canvas runtime automatically supplies API key when blank
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-
             try {
-                const response = await fetch(url, {
+                if (!state.weather) throw new Error('Weather data is required for AI-generated tips.');
+                const response = await fetch(AI_TIPS_ENDPOINT, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }]
+                        temperature: state.weather.temp,
+                        maxTemperature: state.weather.maxTemp,
+                        condition: getWeatherDescription(state.weather.code),
+                        weatherCode: state.weather.code,
+                        season: state.season
                     })
                 });
-
+                if (!response.ok) throw new Error(`AI service returned HTTP ${response.status}.`);
                 const data = await response.json();
-                const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                
-                if (rawText) {
-                    // Clean possible markdown backticks
-                    const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-                    const parsed = JSON.parse(cleanJson);
-                    
-                    state.aiTipsCache = parsed.map((item, index) => ({
-                        id: 'ai_' + index,
-                        text: item.text,
-                        category: item.category || "General",
-                        season: state.season,
-                        extreme: !!item.extreme,
-                        icon: item.category === 'Heat' ? 'sun' : item.category === 'Cold' ? 'snowflake' : item.category === 'Rain' ? 'cloud-rain' : 'compass'
-                    }));
+                if (!Array.isArray(data.tips) || data.tips.length === 0) {
+                    throw new Error('AI service returned no tips.');
                 }
-            } catch (e) {
-                console.error("Gemini API Error, falling back to static database", e);
+                state.aiTipsCache = data.tips.map((item, index) => ({
+                    id: `ai_${index}`,
+                    text: String(item.text || ''),
+                    condition: String(item.condition || item.category || 'General'),
+                    category: getConditionCategory(item.condition || item.category || 'General'),
+                    season: String(item.season || state.season),
+                    extreme: Boolean(item.extreme)
+                }));
+                if (state.aiTipsCache.some(tip => !tip.text.trim())) throw new Error('AI service returned an invalid tip.');
+                state.aiError = null;
+            } catch (error) {
+                console.error('AI tips request failed; using the CSV tip list:', error);
+                state.aiTipsCache = state.tips;
+                state.aiError = 'AI tips are unavailable. Showing the standard tip list instead.';
+            } finally {
+                state.aiRequestInProgress = false;
             }
 
             renderTips();
@@ -442,67 +576,81 @@ Return a valid JSON array of objects with keys: "text" (string), "category" ("He
 
             if (state.isAiMode) {
                 if (!state.aiTipsCache) {
-                    fetchGeminiTips();
+                    if (!state.weather) {
+                        tipsContainer.innerHTML = `<p role="alert" class="p-6 text-center text-sm text-red-700 dark:text-red-300 bg-white dark:bg-slate-800 rounded-2xl">${escapeHtml(state.weatherError || 'Weather data is required to generate tips.')}</p>`;
+                    } else {
+                        fetchGeminiTips();
+                    }
                     return;
                 }
                 activeList = [...state.aiTipsCache];
             } else {
-                activeList = [...TIP_DATABASE];
+                activeList = [...state.tips];
             }
 
-            // Apply Filters
-            const selectedSeason = seasonFilter.value === 'auto' ? state.season : seasonFilter.value;
+            if (!state.weather) {
+                tipsContainer.innerHTML = `<p role="alert" class="p-6 text-center text-sm text-red-700 dark:text-red-300 bg-white dark:bg-slate-800 rounded-2xl">${escapeHtml(state.weatherError || 'Weather data is required to match tips.')}</p>`;
+                tipCountBadge.textContent = '0 tips';
+                return;
+            }
+
             const selectedCondition = conditionFilter.value;
 
             let filtered = activeList.filter(tip => {
-                const matchSeason = (seasonFilter.value === 'auto') ? true : tip.season === selectedSeason;
-                const matchCondition = (selectedCondition === 'all') ? true : tip.category === selectedCondition;
-                return matchSeason && matchCondition;
+                const isApplicableExtreme = tip.extreme &&
+                    isExtremeConditionActive(tip.condition, state.weather);
+                const matchSeason = isApplicableExtreme ||
+                    ['all', 'any'].includes(normalizeCondition(tip.season)) ||
+                    normalizeCondition(tip.season) === normalizeCondition(seasonFilter.value === 'auto' ? state.season : seasonFilter.value);
+                const matchWeather = isApplicableExtreme || matchesWeatherCondition(tip.condition, state.weather);
+                const matchCondition = selectedCondition === 'all' || getConditionCategory(tip.condition) === selectedCondition;
+                return matchSeason && matchWeather && matchCondition;
             });
 
-            // Sort: Extreme tips always placed at top (Requirement D4)
-            filtered.sort((a, b) => (b.extreme === true ? 1 : 0) - (a.extreme === true ? 1 : 0));
+            filtered.sort((a, b) => Number(b.extreme) - Number(a.extreme));
 
-            // Cap at up to 10 tips per day (Requirement D3)
             filtered = filtered.slice(0, 10);
 
             tipCountBadge.textContent = `${filtered.length} tips`;
 
+            const statusMessage = state.tipsError ||
+                (state.isAiMode && state.aiError ? state.aiError : '');
             if (filtered.length === 0) {
                 tipsContainer.innerHTML = `
                     <div class="p-8 text-center text-slate-500 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
                         <i data-lucide="info" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
-                        <p class="text-sm">No tips match your filter criteria.</p>
+                        <p class="text-sm">${escapeHtml(statusMessage || (state.tipsError ? state.tipsError : 'No tips match your filter criteria.'))}</p>
                     </div>
                 `;
                 lucide.createIcons();
                 return;
             }
 
-            tipsContainer.innerHTML = filtered.map(tip => {
-                const isBookmarked = state.bookmarks.includes(tip.id);
-                const isDone = state.doneTips.includes(tip.id);
+            tipsContainer.innerHTML = `${statusMessage ? `<p role="status" class="p-3 text-center text-xs text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/30 rounded-xl">${escapeHtml(statusMessage)}</p>` : ''}` + filtered.map(tip => {
+                const id = String(tip.id);
+                const isBookmarked = state.bookmarks.includes(id);
+                const isDone = state.doneTips.includes(id);
 
                 return `
                     <div class="p-4 rounded-2xl bg-white dark:bg-slate-800 border ${tip.extreme ? 'border-amber-400 dark:border-amber-500/50 bg-amber-50/30 dark:bg-amber-950/10' : 'border-slate-200 dark:border-slate-700'} shadow-sm transition hover:shadow-md flex items-start space-x-3 group">
                         
                         <!-- Checkbox / Done -->
-                        <button onclick="toggleDone('${tip.id}')" class="mt-0.5 p-1 rounded-lg text-slate-400 hover:text-green-500 transition">
+                        <button data-tip-action="done" data-tip-id="${escapeHtml(id)}" class="mt-0.5 p-1 rounded-lg text-slate-400 hover:text-green-500 transition">
                             <i data-lucide="${isDone ? 'check-circle-2' : 'circle'}" class="w-5 h-5 ${isDone ? 'text-green-500 fill-green-500/20' : ''}"></i>
                         </button>
 
                         <div class="flex-1">
                             <div class="flex items-center space-x-2 mb-1">
                                 ${tip.extreme ? '<span class="px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase bg-amber-500 text-white rounded-md">Priority</span>' : ''}
-                                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">${tip.category}</span>
+                                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">${escapeHtml(tip.condition)}</span>
                             </div>
                             <p class="text-sm text-slate-800 dark:text-slate-200 ${isDone ? 'line-through text-slate-400 dark:text-slate-500' : ''}">
-                                ${tip.text}
+                                ${escapeHtml(tip.text)}
                             </p>
                         </div>
 
                         <!-- Bookmark Action -->
-                        <button onclick="toggleBookmark('${tip.id}')" class="p-1 rounded-lg text-slate-400 hover:text-amber-500 transition">
+                        <button data-tip-action="bookmark" data-tip-id="${escapeHtml(id)}" class="p-1 rounded-lg text-slate-400 hover:text-amber-500 transition">
                             <i data-lucide="bookmark" class="w-4 h-4 ${isBookmarked ? 'text-amber-500 fill-amber-500' : ''}"></i>
                         </button>
                     </div>
@@ -514,6 +662,7 @@ Return a valid JSON array of objects with keys: "text" (string), "category" ("He
 
         // --- USER INTERACTIONS ---
         window.toggleBookmark = function(id) {
+            id = String(id);
             if (state.bookmarks.includes(id)) {
                 state.bookmarks = state.bookmarks.filter(item => item !== id);
             } else {
@@ -524,6 +673,7 @@ Return a valid JSON array of objects with keys: "text" (string), "category" ("He
         };
 
         window.toggleDone = function(id) {
+            id = String(id);
             if (state.doneTips.includes(id)) {
                 state.doneTips = state.doneTips.filter(item => item !== id);
             } else {
@@ -532,6 +682,13 @@ Return a valid JSON array of objects with keys: "text" (string), "category" ("He
             localStorage.setItem('zh_climate_dones', JSON.stringify(state.doneTips));
             renderTips();
         };
+
+        tipsContainer.addEventListener('click', event => {
+            const button = event.target.closest('[data-tip-action]');
+            if (!button || !tipsContainer.contains(button)) return;
+            if (button.dataset.tipAction === 'done') window.toggleDone(button.dataset.tipId);
+            if (button.dataset.tipAction === 'bookmark') window.toggleBookmark(button.dataset.tipId);
+        });
 
         // Mode Switching
         modeStaticBtn.addEventListener('click', () => {
@@ -552,6 +709,7 @@ Return a valid JSON array of objects with keys: "text" (string), "category" ("He
 
         generateAiTipsBtn.addEventListener('click', () => {
             state.aiTipsCache = null;
+            state.aiError = null;
             fetchGeminiTips();
         });
 
@@ -573,7 +731,8 @@ Return a valid JSON array of objects with keys: "text" (string), "category" ("He
         // Initialize on load
         window.onload = function() {
             lucide.createIcons();
-            fetchZurichWeather();
+            Promise.all([loadTips(), fetchZurichWeather()]).then(renderTips);
+            window.setInterval(fetchZurichWeather, 60 * 60 * 1000);
         };
     </script>
 </body>
